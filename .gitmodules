@@ -1,3 +1,4 @@
 [submodule "AOT_GAN"]
 	path = AOT_GAN
 	url = https://github.com/aivan6842/AOT-GAN-for-Inpainting.git
+	branch = master
