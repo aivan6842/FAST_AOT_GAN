@@ -1,1 +1,1 @@
-jupyter nbconvert mynotebook.ipynb --to python
+jupyter nbconvert project.ipynb --to python

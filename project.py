@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[ ]:
 
 
 from AOT_GAN.src.model.aotgan import InpaintGenerator
@@ -24,16 +24,16 @@ from torch.utils.tensorboard import SummaryWriter
 from torch import nn
 from AOT_GAN.src.model.common import BaseNetwork
 from AOT_GAN.src.model.aotgan import spectral_norm
+from AOT_GAN.src.metric.metric import mae, psnr, ssim, fid
 
 
-# In[2]:
+# In[ ]:
 
 
 device = torch.device("cuda")
-np.random.seed(10)
 
 
-# In[3]:
+# In[ ]:
 
 
 # # # Model and version
@@ -47,7 +47,7 @@ np.random.seed(10)
 # sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-# In[4]:
+# In[ ]:
 
 
 # mask = np.zeros((512, 512, 1), np.uint8)
@@ -56,7 +56,7 @@ np.random.seed(10)
 # orig_img = cv2.resize(cv2.imread(filename, cv2.IMREAD_COLOR), (512, 512))
 
 
-# In[5]:
+# In[ ]:
 
 
 # def postprocess(image):
@@ -67,7 +67,7 @@ np.random.seed(10)
 #     return image
 
 
-# In[6]:
+# In[ ]:
 
 
 # with torch.no_grad():
@@ -84,21 +84,36 @@ np.random.seed(10)
 #     cv2.imwrite("p.jpg", comp_np)
 
 
+# # Paths
+
+# In[16]:
+
+
+train_data_path = "data/small/train"
+val_data_path = "data/small/val"
+test_data_path = "data/small/test"
+
+BATCH_SIZE = 1
+
+teacher_model_path = "AOT_GAN/experiments/places2/G0000000.pt"
+
+student_final_model = "models/student_generator_test_final.pt"
+
+
 # # Data
 
 # ## Dataset
 
-# In[7]:
+# In[ ]:
 
 
 class InpaintingData(Dataset):
-    def __init__(self, root_dir: str, masks_dir: str):
+    def __init__(self, root_dir: str):
         super(Dataset, self).__init__()
         # images 
-        self.images = os.listdir(root_dir)
+        self.images = os.listdir(f"{root_dir}/images/")
         self.root_dir = root_dir
-        self.masks = os.listdir(masks_dir)
-        self.masks_dir = masks_dir
+        self.masks = os.listdir(f"{root_dir}/masks/")
 
         # augmentation
         self.img_trans = transforms.Compose(
@@ -122,14 +137,12 @@ class InpaintingData(Dataset):
 
     def __getitem__(self, index):
         # load image
-        image_path = os.path.join(self.root_dir, self.images[index])
+        image_path = os.path.join(f"{self.root_dir}/images/", self.images[index])
         image = Image.open(image_path).convert("RGB")
 
         # get mask
-        rand_index = np.random.randint(0, len(self.masks_dir))
-        mask_path = os.path.join(self.masks_dir, self.masks[rand_index])
-        mask = Image.open(mask_path)
-        mask = mask.convert("L")
+        mask_path = os.path.join(f"{self.root_dir}/masks/", self.masks[index])
+        mask = Image.open(mask_path).convert("L")
 
         # augment
         image = self.img_trans(image) * 2.0 - 1.0
@@ -138,26 +151,25 @@ class InpaintingData(Dataset):
         return image, mask, image_path
 
 
-# In[8]:
+# In[ ]:
 
 
-train = InpaintingData("data/images/train", "data/masks")
-val = InpaintingData("data/images/val", "data/masks")
-test = InpaintingData("data/images/test", "data/masks")
+train = InpaintingData(train_data_path)
+val = InpaintingData(val_data_path)
+test = InpaintingData(test_data_path)
 
 
-# In[9]:
+# In[ ]:
 
 
-len(train), len(val), len(test)
+print(len(train), len(val), len(test))
 
 
 # ## Dataloaders
 
-# In[10]:
+# In[ ]:
 
 
-BATCH_SIZE = 2
 train_loader = DataLoader(train, batch_size=BATCH_SIZE, shuffle=True)
 val_loader = DataLoader(val, batch_size=BATCH_SIZE, shuffle=True)
 test_loader = DataLoader(test, batch_size=BATCH_SIZE, shuffle=True)
@@ -165,7 +177,7 @@ test_loader = DataLoader(test, batch_size=BATCH_SIZE, shuffle=True)
 
 # # Models
 
-# In[11]:
+# In[ ]:
 
 
 class Discriminator(BaseNetwork):
@@ -191,7 +203,7 @@ class Discriminator(BaseNetwork):
 
 # # Training
 
-# In[12]:
+# In[ ]:
 
 
 def train(run_name, 
@@ -212,6 +224,9 @@ def train(run_name,
           save_dir="models/"):
     writer = SummaryWriter()
     iteration = 0
+
+    if not os.path.exists(save_dir):
+        os.mkdir(save_dir)
 
     # Create losses
     L1_loss = L1()
@@ -267,17 +282,21 @@ def train(run_name,
             iteration += 1
         
         if (epoch + 1) % save_every == 0:
-            torch.save(student_generator.module.state_dict(), os.path.join(save_dir, f"student_generator_{epoch}.pt"))
-            torch.save(discriminator.module.state_dict(), os.path.join(save_dir, f"discriminator_{epoch}.pt"))
+            torch.save(student_generator.state_dict(), os.path.join(save_dir, f"student_generator_{run_name}_{epoch}.pt"))
+            torch.save(discriminator.state_dict(), os.path.join(save_dir, f"discriminator_{run_name}_{epoch}.pt"))
+    
+    # save final models
+    torch.save(student_generator.state_dict(), os.path.join(save_dir, f"student_generator_{run_name}_final.pt"))
+    torch.save(discriminator.state_dict(), os.path.join(save_dir, f"discriminator_{run_name}_final.pt"))
 
 
-# In[15]:
+# In[ ]:
 
 
 # create models
 teacher_model_args = AttrDict({"block_num":8, "rates":[1, 2, 4, 8]})
 teacher_model = InpaintGenerator(teacher_model_args).to(device)
-teacher_model.load_state_dict(torch.load("AOT_GAN/experiments/places2/G0000000.pt", map_location=device))
+teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=device))
 teacher_model.eval()
 
 half_size_args = AttrDict({"block_num": 4, "rates": [1, 2, 4, 8]})
@@ -286,10 +305,56 @@ student_model = InpaintGenerator(half_size_args).to(device)
 disc = Discriminator().to(device)
 
 train(run_name="test",
-      num_epochs=1,
+      num_epochs=200,
       student_generator=student_model,
       teacher_generator=teacher_model,
-      discriminator=disc)
+      discriminator=disc,
+      save_every=10)
+
+
+# # Testing
+
+# In[ ]:
+
+
+def postprocess(image):
+    image = torch.clamp(image, -1.0, 1.0)
+    image = (image + 1) / 2.0 * 255.0
+    image = image.permute(1, 2, 0)
+    image = image.cpu().numpy().astype(np.uint8)
+    return Image.fromarray(image)
+
+
+# In[ ]:
+
+
+print("Testing")
+
+student_generator = InpaintGenerator(half_size_args).to(device)
+student_generator.load_state_dict(torch.load(student_final_model, map_location=device))
+student_generator.eval()
+
+image_paths = sorted(os.listdir(f"{test_data_path}/images"))
+masks = sorted(os.listdir(f"{test_data_path}/masks"))
+
+for image_path, mask_path in zip(image_paths, masks):
+    image = ToTensor()(Image.open(f"{test_data_path}/images/{image_path}").convert("RGB"))
+    image = (image * 2.0 - 1.0).unsqueeze(0)
+    mask = ToTensor()(Image.open(f"{test_data_path}/masks/{mask_path}").convert("L"))
+    mask = mask.unsqueeze(0)
+    image, mask = image.to(device), mask.to(device)
+    image_masked = image * (1 - mask.float()) + mask
+
+    with torch.no_grad():
+        pred_img, _ = student_generator(image_masked, mask)
+
+    comp_imgs = (1 - mask) * image + mask * pred_img
+    image_name = os.path.basename(image_path).split(".")[0]
+    postprocess(image_masked[0]).save(f"tests/{image_name}_masked.png")
+    postprocess(pred_img[0]).save(f"tests/{image_name}_pred.png")
+    postprocess(comp_imgs[0]).save(f"tests/{image_name}_comp.png")
+        #res["ssim"] += ssim(images, inpainted_images)
+        #res["fid"] += fid(images, inpainted_images, "/home/alex/.cache/torch/hub/checkpoints/inception_v3_google-1a9a5a14.pth")
 
 
 # In[ ]:
