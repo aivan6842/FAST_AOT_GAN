@@ -4,7 +4,7 @@
 # In[ ]:
 
 
-from AOT_GAN.src.model.aotgan import InpaintGenerator
+from AOT_GAN.src.model.aotgan import InpaintGenerator, Discriminator
 from AOT_GAN.src.loss.loss import L1, Style, Perceptual, smgan
 import torch
 from collections import namedtuple
@@ -25,6 +25,7 @@ from torch import nn
 from AOT_GAN.src.model.common import BaseNetwork
 from AOT_GAN.src.model.aotgan import spectral_norm
 from AOT_GAN.src.metric.metric import mae, psnr, ssim, fid
+import random
 
 
 # In[ ]:
@@ -89,11 +90,15 @@ device = torch.device("cuda")
 # In[16]:
 
 
-train_data_path = "data/small/train"
-val_data_path = "data/small/val"
-test_data_path = "data/small/test"
+# train_data_path = "/scratch/expires-2024-Nov-17/aivan6842/data/small/train"
+# val_data_path = "/scratch/expires-2024-Nov-17/aivan6842/data/small/val"
+# test_data_path = "/scratch/expires-2024-Nov-17/aivan6842/data/small/test"
 
-BATCH_SIZE = 1
+train_data_path = "data/medium/train"
+val_data_path = "data/medium/val"
+test_data_path = "data/medium/test"
+
+BATCH_SIZE = 16
 
 teacher_model_path = "AOT_GAN/experiments/places2/G0000000.pt"
 
@@ -108,12 +113,14 @@ student_final_model = "models/student_generator_test_final.pt"
 
 
 class InpaintingData(Dataset):
-    def __init__(self, root_dir: str):
+    def __init__(self, root_dir: str, masks_dir: str = "data/masks"):
         super(Dataset, self).__init__()
         # images 
-        self.images = os.listdir(f"{root_dir}/images/")
+        self.images = os.listdir(f"{root_dir}")
         self.root_dir = root_dir
-        self.masks = os.listdir(f"{root_dir}/masks/")
+        self.masks_dir = masks_dir
+        self.masks = os.listdir(masks_dir)
+        random.seed(10)
 
         # augmentation
         self.img_trans = transforms.Compose(
@@ -137,11 +144,12 @@ class InpaintingData(Dataset):
 
     def __getitem__(self, index):
         # load image
-        image_path = os.path.join(f"{self.root_dir}/images/", self.images[index])
+        image_path = os.path.join(f"{self.root_dir}", self.images[index])
         image = Image.open(image_path).convert("RGB")
 
         # get mask
-        mask_path = os.path.join(f"{self.root_dir}/masks/", self.masks[index])
+        random_idx = random.randint(0, len(self.masks)-1)
+        mask_path = os.path.join(f"{self.masks_dir}", self.masks[random_idx])
         mask = Image.open(mask_path).convert("L")
 
         # augment
@@ -155,14 +163,14 @@ class InpaintingData(Dataset):
 
 
 train = InpaintingData(train_data_path)
-val = InpaintingData(val_data_path)
+# val = InpaintingData(val_data_path)
 test = InpaintingData(test_data_path)
 
 
 # In[ ]:
 
 
-print(len(train), len(val), len(test))
+print(len(train), len(test))
 
 
 # ## Dataloaders
@@ -171,7 +179,7 @@ print(len(train), len(val), len(test))
 
 
 train_loader = DataLoader(train, batch_size=BATCH_SIZE, shuffle=True)
-val_loader = DataLoader(val, batch_size=BATCH_SIZE, shuffle=True)
+# val_loader = DataLoader(val, batch_size=BATCH_SIZE, shuffle=True)
 test_loader = DataLoader(test, batch_size=BATCH_SIZE, shuffle=True)
 
 
@@ -180,25 +188,25 @@ test_loader = DataLoader(test, batch_size=BATCH_SIZE, shuffle=True)
 # In[ ]:
 
 
-class Discriminator(BaseNetwork):
-    def __init__(
-        self,
-    ):
-        super(Discriminator, self).__init__()
-        inc = 3
-        self.conv = nn.Sequential(
-            spectral_norm(nn.Conv2d(inc, 128, 4, stride=2, padding=1, bias=False)),
-            nn.LeakyReLU(0.2, inplace=True),
-            spectral_norm(nn.Conv2d(128, 512, 4, stride=1, padding=1, bias=False)),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(512, 1, 4, stride=1, padding=1),
-        )
+# class Discriminator(BaseNetwork):
+#     def __init__(
+#         self,
+#     ):
+#         super(Discriminator, self).__init__()
+#         inc = 3
+#         self.conv = nn.Sequential(
+#             spectral_norm(nn.Conv2d(inc, 128, 4, stride=2, padding=1, bias=False)),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             spectral_norm(nn.Conv2d(128, 512, 4, stride=1, padding=1, bias=False)),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             nn.Conv2d(512, 1, 4, stride=1, padding=1),
+#         )
 
-        self.init_weights()
+#         self.init_weights()
 
-    def forward(self, x):
-        feat = self.conv(x)
-        return feat
+#     def forward(self, x):
+#         feat = self.conv(x)
+#         return feat
 
 
 # # Training
@@ -214,7 +222,8 @@ def train(run_name,
           style_loss_weight=250,
           perceptual_loss_weight=0.1,
           adversarial_loss_weight=0.01,
-          distillation_loss_weight=0.5,
+          distillation_loss_weight=0.1,
+          focused_loss_weight=0.2,
           num_epochs = 5,
           gen_lr = 1e-4,
           disc_lr = 1e-4,
@@ -234,10 +243,11 @@ def train(run_name,
     percetual_loss = Perceptual()
     adversarial_loss = smgan()
     distillation_loss = torch.nn.MSELoss()
+    focused_loss = torch.nn.MSELoss()
 
     # get optimizers
-    optimG = torch.optim.Adam(student_generator.parameters(), lr=gen_lr, betas=(a, b))
-    optimD = torch.optim.Adam(discriminator.parameters(), lr=disc_lr, betas=(a, b))
+    optimG = torch.optim.AdamW(student_generator.parameters(), lr=gen_lr, betas=(a, b))
+    optimD = torch.optim.AdamW(discriminator.parameters(), lr=disc_lr, betas=(a, b))
 
     print("Beginning Training")
 
@@ -257,15 +267,17 @@ def train(run_name,
 
             # losses
             l1_loss_val = L1_loss(predicted_images, images)
+            focused_loss_val = focused_loss(predicted_images * masks, images * masks)
             style_loss_val = style_loss(predicted_images, images)
             percetual_loss_val = percetual_loss(predicted_images, images)
-            distillation_loss_val = distillation_loss(student_mids, teacher_mids)
+            distillation_loss_val = distillation_loss(student_mids, teacher_mids[1::2])
             adversarial_disc_loss, adversarial_gen_loss = adversarial_loss(discriminator, inpainted_images, images, masks)
 
             total_loss = (L1_loss_weight * l1_loss_val) + \
                          (style_loss_weight * style_loss_val) + \
                          (perceptual_loss_weight * percetual_loss_val) + \
                          (distillation_loss_weight * distillation_loss_val) + \
+                         (focused_loss_weight * focused_loss_val) + \
                          (adversarial_loss_weight * adversarial_gen_loss)
         
             optimG.zero_grad()
@@ -276,6 +288,11 @@ def train(run_name,
             optimD.step()
 
             writer.add_scalar("Loss/train/generator", adversarial_gen_loss, iteration)
+            writer.add_scalar("Loss/train/L1_loss", l1_loss_val, iteration)
+            writer.add_scalar("Loss/train/style_loss", style_loss_val, iteration)
+            writer.add_scalar("Loss/train/distillation_loss_val", distillation_loss_val, iteration)
+            writer.add_scalar("Loss/train/perceptual_loss", percetual_loss_val, iteration)
+            writer.add_scalar("Loss/train/focused_loss", focused_loss_val, iteration)
             writer.add_scalar("Loss/train/discriminator", adversarial_disc_loss, iteration)
             writer.add_scalar("Loss/train/total", total_loss, iteration)
 
@@ -296,69 +313,31 @@ def train(run_name,
 # create models
 teacher_model_args = AttrDict({"block_num":8, "rates":[1, 2, 4, 8]})
 teacher_model = InpaintGenerator(teacher_model_args).to(device)
-teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=device))
+teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=device, weights_only=True))
 teacher_model.eval()
 
 half_size_args = AttrDict({"block_num": 4, "rates": [1, 2, 4, 8]})
 student_model = InpaintGenerator(half_size_args).to(device)
 
+
+# copy teacher encoder params into encoder
+with torch.no_grad():
+    student_model.encoder = teacher_model.encoder
+    student_model.decoder = teacher_model.decoder
+
+for param in student_model.encoder.parameters():
+    param.requires_grad = False
+
+for param in student_model.decoder.parameters():
+    param.requires_grad = False
+
+
 disc = Discriminator().to(device)
 
 train(run_name="test",
-      num_epochs=200,
+      num_epochs=20,
       student_generator=student_model,
       teacher_generator=teacher_model,
       discriminator=disc,
-      save_every=10)
-
-
-# # Testing
-
-# In[ ]:
-
-
-def postprocess(image):
-    image = torch.clamp(image, -1.0, 1.0)
-    image = (image + 1) / 2.0 * 255.0
-    image = image.permute(1, 2, 0)
-    image = image.cpu().numpy().astype(np.uint8)
-    return Image.fromarray(image)
-
-
-# In[ ]:
-
-
-print("Testing")
-
-student_generator = InpaintGenerator(half_size_args).to(device)
-student_generator.load_state_dict(torch.load(student_final_model, map_location=device))
-student_generator.eval()
-
-image_paths = sorted(os.listdir(f"{test_data_path}/images"))
-masks = sorted(os.listdir(f"{test_data_path}/masks"))
-
-for image_path, mask_path in zip(image_paths, masks):
-    image = ToTensor()(Image.open(f"{test_data_path}/images/{image_path}").convert("RGB"))
-    image = (image * 2.0 - 1.0).unsqueeze(0)
-    mask = ToTensor()(Image.open(f"{test_data_path}/masks/{mask_path}").convert("L"))
-    mask = mask.unsqueeze(0)
-    image, mask = image.to(device), mask.to(device)
-    image_masked = image * (1 - mask.float()) + mask
-
-    with torch.no_grad():
-        pred_img, _ = student_generator(image_masked, mask)
-
-    comp_imgs = (1 - mask) * image + mask * pred_img
-    image_name = os.path.basename(image_path).split(".")[0]
-    postprocess(image_masked[0]).save(f"tests/{image_name}_masked.png")
-    postprocess(pred_img[0]).save(f"tests/{image_name}_pred.png")
-    postprocess(comp_imgs[0]).save(f"tests/{image_name}_comp.png")
-        #res["ssim"] += ssim(images, inpainted_images)
-        #res["fid"] += fid(images, inpainted_images, "/home/alex/.cache/torch/hub/checkpoints/inception_v3_google-1a9a5a14.pth")
-
-
-# In[ ]:
-
-
-
-
+      save_every=2,
+      distillation_loss_weight=0.0001)
