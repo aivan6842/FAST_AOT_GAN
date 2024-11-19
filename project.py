@@ -94,16 +94,13 @@ device = torch.device("cuda")
 # val_data_path = "/scratch/expires-2024-Nov-17/aivan6842/data/small/val"
 # test_data_path = "/scratch/expires-2024-Nov-17/aivan6842/data/small/test"
 
-train_data_path = "data/medium/train"
-val_data_path = "data/medium/val"
-test_data_path = "data/medium/test"
+train_data_path = "data/x-medium/train"
+val_data_path = "data/x-medium/val"
+test_data_path = "data/x-medium/test"
 
 BATCH_SIZE = 16
 
 teacher_model_path = "AOT_GAN/experiments/places2/G0000000.pt"
-
-student_final_model = "models/student_generator_test_final.pt"
-
 
 # # Data
 
@@ -335,7 +332,7 @@ for param in student_model.decoder.parameters():
 disc = Discriminator().to(device)
 
 train(run_name="test",
-      num_epochs=20,
+      num_epochs=50,
       student_generator=student_model,
       teacher_generator=teacher_model,
       discriminator=disc,

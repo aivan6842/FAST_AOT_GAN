@@ -166,3 +166,5 @@ data/
 runs/
 models/
 tests/
+places2_fid.pt
+models_first/
