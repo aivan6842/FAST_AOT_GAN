@@ -24,6 +24,7 @@ student_model.load_state_dict(torch.load(student_model_path, map_location=device
 student_model.eval()
 
 backend = "qnnpack"
+backend = "x86"
 teacher_model.qconfig = torch.ao.quantization.get_default_qconfig(backend)
 student_model.qconfig = torch.ao.quantization.get_default_qconfig(backend)
 torch.backends.quantized.engine = backend

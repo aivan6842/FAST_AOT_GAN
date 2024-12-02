@@ -1,26 +1,11 @@
-from AOT_GAN.src.model.aotgan import InpaintGenerator, Discriminator
-from AOT_GAN.src.loss.loss import L1, Style, Perceptual, smgan
+from AOT_GAN.src.model.aotgan import InpaintGenerator
 import torch
-from collections import namedtuple
 from attrdict import AttrDict
 import numpy as np
-import cv2
 from torchvision.transforms import ToTensor
 import os
 from tqdm import tqdm
-
-import torchvision.transforms as transforms
-import torchvision.transforms.functional as F
 from PIL import Image
-from torch.utils.data import Dataset, DataLoader
-from torch.utils.tensorboard import SummaryWriter
-
-from torch import nn
-from AOT_GAN.src.model.common import BaseNetwork
-from AOT_GAN.src.model.aotgan import spectral_norm
-from AOT_GAN.src.metric.metric import mae, psnr, ssim, fid
-import random
-from tqdm import tqdm
 
 device = torch.device("cpu")
 half_size_args = AttrDict({"block_num": 4, "rates": [1, 2, 4, 8]})
@@ -59,6 +44,6 @@ for image_path, mask_path in tqdm(zip(image_paths, masks), total=len(image_paths
 
     comp_imgs = (1 - mask) * image + mask * pred_img
     image_name = os.path.basename(image_path).split(".")[0]
-    postprocess(image_masked[0]).save(f"tests/{pct}_base/{image_name}_masked.png")
-    postprocess(pred_img[0]).save(f"tests/{pct}_base/{image_name}_pred.png")
+    # postprocess(image_masked[0]).save(f"tests/{pct}_base/{image_name}_masked.png")
+    # postprocess(pred_img[0]).save(f"tests/{pct}_base/{image_name}_pred.png")
     postprocess(comp_imgs[0]).save(f"tests/{pct}_base/{image_name}_comp.png")
