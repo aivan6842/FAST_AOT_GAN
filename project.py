@@ -227,8 +227,9 @@ def train(run_name,
           a=0.5,
           b=0.999,
           save_every=3,
-          save_dir="models/"):
-    writer = SummaryWriter()
+          save_dir="models/",
+          log_dir="./runs"):
+    writer = SummaryWriter(f"{log_dir}/{run_name}")
     iteration = 0
 
     if not os.path.exists(save_dir):
@@ -331,10 +332,12 @@ for param in student_model.decoder.parameters():
 
 disc = Discriminator().to(device)
 
-train(run_name="test",
+train(run_name="up_to_60_percent_mask",
       num_epochs=50,
       student_generator=student_model,
       teacher_generator=teacher_model,
       discriminator=disc,
       save_every=2,
-      distillation_loss_weight=0.0001)
+      distillation_loss_weight=0.0001,
+      log_dir="/w/nobackup/385/scratch-space/expires-2024-Dec-05/aivan6842/logs",
+      save_dir="/w/nobackup/385/scratch-space/expires-2024-Dec-05/aivan6842/models")
