@@ -1,29 +1,31 @@
-from AOT_GAN.src.model.aotgan import InpaintGenerator, Discriminator
-from AOT_GAN.src.loss.loss import L1, Style, Perceptual, smgan
+from AOT_GAN.src.model.aotgan import InpaintGenerator
 import torch
-from collections import namedtuple
 from attrdict import AttrDict
 import numpy as np
-import cv2
+
 from torchvision.transforms import ToTensor
 import os
 from tqdm import tqdm
-
-import torchvision.transforms as transforms
-import torchvision.transforms.functional as F
 from PIL import Image
-from torch.utils.data import Dataset, DataLoader
-from torch.utils.tensorboard import SummaryWriter
+import numpy as np
 
-from torch import nn
-from AOT_GAN.src.model.common import BaseNetwork
-from AOT_GAN.src.model.aotgan import spectral_norm
-from AOT_GAN.src.metric.metric import mae, psnr, ssim, fid
-import random
-from tqdm import tqdm
+
+
+class QuantizedModel(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model_fp32 = model
+        self.quant = torch.ao.quantization.QuantStub()
+        self.dequant = torch.ao.quantization.DeQuantStub()
+        
+    def forward(self, x, mask):
+        x = self.quant(x)
+        x = self.model_fp32(x, mask)
+        x = self.dequant(x)
+        return x
 
 device = torch.device("cpu")
-half_size_args = AttrDict({"block_num": 8, "rates": [1, 2, 4, 8]})
+half_size_args = AttrDict({"block_num": 4, "rates": [1, 2, 4, 8]})
 
 pct = "3"
 test_data_path = "data/x-medium/test"
@@ -32,16 +34,20 @@ student_final_model = "AOT_GAN/experiments/places2/G0000000.pt"
 # student_final_model = "models_first/student_generator_test_final.pt"
 
 student_quantized = "/w/nobackup/385/scratch-space/expires-2024-Dec-05/aivan6842/models/teacher_quantized.pt"
+student_quantized = "/w/nobackup/385/scratch-space/expires-2024-Dec-05/aivan6842/models/student_quantized.pt"
 
 
-student_model = InpaintGenerator(half_size_args).to(device)
+student_model = InpaintGenerator(half_size_args)
+student_model.eval()
+qm = QuantizedModel(student_model)
 # student_generator.load_state_dict(torch.load(student_final_model, map_location=device, weights_only=True))
-backend = "qnnpack"
+backend = "fbgemm"
 student_model.qconfig = torch.ao.quantization.get_default_qconfig(backend)
+student_model.qconfig = torch.ao.quantization.get_default_qat_qconfig(backend)
 torch.backends.quantized.engine = backend
-model_static_quantized_student = torch.ao.quantization.prepare(student_model, inplace=False)
+model_static_quantized_student = torch.ao.quantization.prepare(qm, inplace=False)
 model_static_quantized_student = torch.ao.quantization.convert(model_static_quantized_student, inplace=False)
-model_static_quantized_student.load_state_dict(torch.load(student_quantized, map_location=device, weights_only=True))
+model_static_quantized_student.model_fp32.load_state_dict(torch.load(student_quantized, map_location=device, weights_only=True))
 
 
 image_paths = sorted(os.listdir(f"{test_data_path}"))
@@ -63,7 +69,10 @@ for image_path, mask_path in tqdm(zip(image_paths, masks), total=len(image_paths
     image_masked = image * (1 - mask.float()) + mask
 
     with torch.no_grad():
+        quant_stub = torch.ao.quantization.QuantStub()
+        dequant_stub = torch.ao.quantization.DeQuantStub()
         pred_img, _ = model_static_quantized_student(image_masked, mask)
+        pred_img = dequant_stub(pred_img)
 
     comp_imgs = (1 - mask) * image + mask * pred_img
     image_name = os.path.basename(image_path).split(".")[0]
