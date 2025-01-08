@@ -6,7 +6,7 @@ The Multilayer distilled AOT-GAN (MD-AOT-GAN) model was used for my CSC2541 fina
 
 The resulting model contains about 2x less parameters. Here are the results of the model.
 
-![Results](image.png)
+![Results](/images/image.png)
 
 Note that the majority of the AOT_GAN submodule was provided by Zeng et al (https://github.com/researchmm/AOT-GAN-for-Inpainting). There were a few modifications made to 
 1. Support Quantization (AOT_GAN/src/model/aotgan.py)
