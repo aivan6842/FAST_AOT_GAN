@@ -338,6 +338,4 @@ train(run_name="up_to_60_percent_mask",
       teacher_generator=teacher_model,
       discriminator=disc,
       save_every=2,
-      distillation_loss_weight=0.0001,
-      log_dir="/w/nobackup/385/scratch-space/expires-2024-Dec-05/aivan6842/logs",
-      save_dir="/w/nobackup/385/scratch-space/expires-2024-Dec-05/aivan6842/models")
+      distillation_loss_weight=0.0001)
