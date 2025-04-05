@@ -24,7 +24,7 @@ def read_img(name_pair):
 
 def main(num_worker=8):
     real_names = sorted(glob(f"{args.real_dir}/*.jpg"))
-    fake_names = sorted(glob(f"{args.fake_dir}/*_comp.png"))
+    fake_names = sorted(glob(f"{args.fake_dir}/*_quant.png"))
     print(f"real images: {len(real_names)}, fake images: {len(fake_names)}")
     real_images = []
     fake_images = []

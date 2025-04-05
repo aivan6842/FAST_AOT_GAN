@@ -7,24 +7,27 @@ import os
 from tqdm import tqdm
 from PIL import Image
 
+
 device = torch.device("cpu")
-half_size_args = AttrDict({"block_num": 4, "rates": [1, 2, 4, 8]})
+half_size_args = AttrDict({"block_num": 8, "rates": [1, 2, 4, 8]})
 
 pct = "1"
 # save_dir = f"/w/nobackup/385/scratch-space/expires-2024-Dec-23/aivan6842/test/ours/ood/{pct}"
-save_dir = "tests/paper"
+save_dir = "tests/paper1"
 test_data_path = "data/x-medium/test"
 # test_data_path = "/scratch/expires-2024-Dec-23/aivan6842/data/ood3/ood"
 test_data_path = "tests/paper"
 # masks_data_path = f"data/masks_{pct}"
 masks_data_path = "tests/paper"
 student_final_model = "AOT_GAN/experiments/places2/G0000000.pt"
-student_final_model = "/w/nobackup/385/scratch-space/expires-2024-Dec-23/aivan6842/models/student_generator_up_to_60_percent_mask_45.pt"
+# student_final_model = "/w/340/aivan6842/csc2541/AOT_GAN_CSC2541/models/student_generator_up_to_60_percent_mask_49.pt"
 
-
+##### load model #######
 student_generator = InpaintGenerator(half_size_args).to(device)
 student_generator.load_state_dict(torch.load(student_final_model, map_location=device, weights_only=True))
 student_generator.eval()
+
+########################
 
 image_paths = ["beach_00004089.jpg", "valley_00003311.jpg", "valley_00000409.jpg", "beach_00000780.jpg"]
 masks = ["02055.png", "05148.png", "06518.png", "04259.png"]
@@ -46,6 +49,7 @@ for image_path, mask_path in tqdm(zip(image_paths, masks), total=len(image_paths
 
     with torch.no_grad():
         pred_img, _ = student_generator(image_masked, mask)
+        import pdb; pdb.set_trace()
 
     comp_imgs = (1 - mask) * image + mask * pred_img
     image_name = os.path.basename(image_path).split(".")[0]
