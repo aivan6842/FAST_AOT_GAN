@@ -1,94 +1,40 @@
-import copy
-
-from AOT_GAN.src.model.aotgan import InpaintGenerator
-import torch
-from attrdict import AttrDict
-import numpy as np
-from torchvision.transforms import ToTensor
-import torchvision.transforms as transforms
-import torchvision.transforms.functional as F
+# Standard library
 import os
-from tqdm import tqdm
-from PIL import Image
-from torch.utils.data import Dataset, DataLoader
+import copy
+import numpy as np
 
+# Third-party libraries
+import torch
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
+from attrdict import AttrDict
+
+# PyTorch Quantization
+from torch.ao.quantization.qconfig_mapping import (
+    get_default_qat_qconfig_mapping,
+    QConfigMapping,
+    QConfig,
+)
+from torch.ao.quantization.quantize_fx import (
+    convert_fx,
+    prepare_qat_fx,
+)
+from torch.ao.quantization.observer import (
+    MovingAverageMinMaxObserver,
+    MovingAveragePerChannelMinMaxObserver,
+)
+from torch.ao.quantization.fake_quantize import (
+    FusedMovingAvgObsFakeQuantize,
+    FakeQuantize,
+)
+
+# Local imports
+from inpainting_dataset import InpaintingData
 from AOT_GAN.src.model.aotgan import InpaintGenerator, Discriminator
 from AOT_GAN.src.loss.loss import L1, Style, Perceptual, smgan
-import torch
-from collections import namedtuple
-from attrdict import AttrDict
-import numpy as np
-import cv2
-from torchvision.transforms import ToTensor
-import os
-from tqdm import tqdm
-
-import torchvision.transforms as transforms
-import torchvision.transforms.functional as F
-from PIL import Image
-from torch.utils.data import Dataset, DataLoader
-from torch.utils.tensorboard import SummaryWriter
-
-from torch import nn
-from AOT_GAN.src.model.common import BaseNetwork
-from AOT_GAN.src.model.aotgan import spectral_norm
-from AOT_GAN.src.metric.metric import mae, psnr, ssim, fid
-import random
-
-from torch.ao.quantization.qconfig_mapping import get_default_qconfig_mapping, QConfigMapping, QConfig, get_default_qconfig, get_default_qat_qconfig_mapping
-from torch.ao.quantization.quantize_fx import prepare_fx, convert_fx, prepare_qat_fx
-from torch.ao.quantization.observer import HistogramObserver, MovingAverageMinMaxObserver, MinMaxObserver, PerChannelMinMaxObserver, FixedQParamsObserver, MovingAveragePerChannelMinMaxObserver
-from torch.ao.quantization.fake_quantize import default_fused_per_channel_wt_fake_quant, FusedMovingAvgObsFakeQuantize, FakeQuantize
-import random
 
 device = torch.device("cuda")
-
-#### Dataloader def ####
-class InpaintingData(Dataset):
-    def __init__(self, root_dir: str, masks_dir: str = "data/masks"):
-        super(Dataset, self).__init__()
-        # images 
-        self.images = os.listdir(f"{root_dir}")[:3000]
-        self.root_dir = root_dir
-        self.masks_dir = masks_dir
-        self.masks = os.listdir(masks_dir)
-        random.seed(10)
-
-        # augmentation
-        self.img_trans = transforms.Compose(
-            [
-                transforms.RandomResizedCrop(512),
-                transforms.RandomHorizontalFlip(),
-                transforms.ColorJitter(0.05, 0.05, 0.05, 0.05),
-                transforms.ToTensor(),
-            ]
-        )
-        self.mask_trans = transforms.Compose(
-            [
-                transforms.Resize(512, interpolation=transforms.InterpolationMode.NEAREST),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomRotation((0, 45), interpolation=transforms.InterpolationMode.NEAREST),
-            ]
-        )
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, index):
-        # load image
-        image_path = os.path.join(f"{self.root_dir}", self.images[index])
-        image = Image.open(image_path).convert("RGB")
-
-        # get mask
-        random_idx = random.randint(0, len(self.masks)-1)
-        mask_path = os.path.join(f"{self.masks_dir}", self.masks[random_idx])
-        mask = Image.open(mask_path).convert("L")
-
-        # augment
-        image = self.img_trans(image) * 2.0 - 1.0
-        mask = F.to_tensor(self.mask_trans(mask))
-
-        return image, mask, image_path
 
 
 #### Get data for calibration ######

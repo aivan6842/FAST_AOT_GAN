@@ -1,22 +1,10 @@
-import copy
-
-from AOT_GAN.src.model.aotgan import InpaintGenerator
+# Third-party libraries
 import torch
 from attrdict import AttrDict
-import numpy as np
-from torchvision.transforms import ToTensor
-import torchvision.transforms as transforms
-import torchvision.transforms.functional as F
-import os
-from tqdm import tqdm
-from PIL import Image
-from torch.utils.data import Dataset, DataLoader
 
-from torch.ao.quantization.qconfig_mapping import get_default_qconfig_mapping, QConfigMapping, QConfig, get_default_qconfig
-from torch.ao.quantization.qconfig import float_qparams_weight_only_qconfig, default_dynamic_qconfig
-from torch.ao.quantization.quantize_fx import prepare_fx, convert_fx
-from torch.ao.quantization.observer import HistogramObserver, MovingAverageMinMaxObserver, MinMaxObserver, PerChannelMinMaxObserver, FixedQParamsObserver
-import random
+# PyTorch Quantization
+# Local imports
+from AOT_GAN.src.model.aotgan import InpaintGenerator
 
 device = torch.device("cuda")
 
