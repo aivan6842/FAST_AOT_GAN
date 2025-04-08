@@ -6,7 +6,7 @@ The Multilayer distilled AOT-GAN (MD-AOT-GAN) model was used for my CSC2541 fina
 
 The resulting model contains about 2x less parameters. Here are the results of the model.
 
-![Results](/images/image.png)
+![Results](/images/Res.PNG)
 
 Note that the majority of the AOT_GAN submodule was provided by Zeng et al (https://github.com/researchmm/AOT-GAN-for-Inpainting). There were a few modifications made to 
 1. Support Quantization (AOT_GAN/src/model/aotgan.py)
@@ -26,5 +26,5 @@ This is used to test non-neural inpainting methods like telea and naive stokes. 
 ## `eval.py`
 This script is used with arguments `--real_dir /real/dir`, `--fake_dir /fake/dir`, `--metric mae psnr ssim fid`. This is used to evaluate your generated samples against a ground truth.
 
-## `quantize.py`
-This script is our attempt at Eager mode Post training dynamic quantization. 
+## `quantization`
+This folder contains all the quantization related script which were used to train and quantize the models.
