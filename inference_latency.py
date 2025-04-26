@@ -1,194 +1,36 @@
-import torch
-from brevitas.nn import QuantLinear, QuantConv2d
-from torch import nn
-
-from AOT_GAN.src.model.aotgan import InpaintGenerator
-from attrdict import AttrDict
-import torch.nn as nn
-from torch.nn.utils import spectral_norm
+# === Standard Library ===
 import os
-
-from AOT_GAN.src.model.common import BaseNetwork
-
-from torchvision.transforms import ToTensor
-import os
-from tqdm import tqdm
-from PIL import Image
-import numpy as np
-
 import copy
-
-from AOT_GAN.src.model.aotgan import InpaintGenerator
-import torch
-from attrdict import AttrDict
-import numpy as np
-from torchvision.transforms import ToTensor
-import torchvision.transforms as transforms
-# import torchvision.transforms.functional as F
-import os
-from tqdm import tqdm
-from PIL import Image
-from torch.utils.data import Dataset, DataLoader
-
-from AOT_GAN.src.model.aotgan import InpaintGenerator, Discriminator
-from AOT_GAN.src.loss.loss import L1, Style, Perceptual, smgan
-import torch
-from collections import namedtuple
-from attrdict import AttrDict
-import numpy as np
-import cv2
-from torchvision.transforms import ToTensor
-import os
-from tqdm import tqdm
-
-import torchvision.transforms as transforms
-import torchvision.transforms.functional as F
-from PIL import Image
-from torch.utils.data import Dataset, DataLoader
-from torch.utils.tensorboard import SummaryWriter
-
-from torch import nn
-from AOT_GAN.src.model.common import BaseNetwork
-from AOT_GAN.src.model.aotgan import spectral_norm
-from AOT_GAN.src.metric.metric import mae, psnr, ssim, fid
 import random
+
+# === Third-Party Libraries ===
+import torch
+from torch import nn
+from torch.utils.data import Dataset, DataLoader
 from torch.profiler import profile, record_function, ProfilerActivity
-from torch.ao.quantization.qconfig_mapping import get_default_qconfig_mapping, QConfigMapping, QConfig, get_default_qconfig, get_default_qat_qconfig_mapping
-from torch.ao.quantization.quantize_fx import prepare_fx, convert_fx, prepare_qat_fx
-from torch.ao.quantization.observer import HistogramObserver, MovingAverageMinMaxObserver, MinMaxObserver, PerChannelMinMaxObserver, FixedQParamsObserver, MovingAveragePerChannelMinMaxObserver
-from torch.ao.quantization.fake_quantize import default_fused_per_channel_wt_fake_quant, FusedMovingAvgObsFakeQuantize, FakeQuantize
 
+from PIL import Image
+from tqdm import tqdm
+from attrdict import AttrDict
 
-class QuantInpaintGenerator(BaseNetwork):
-    def __init__(self, args):  # 1046
-        super(QuantInpaintGenerator, self).__init__()
+# === TorchVision ===
+import torchvision.transforms as transforms
+from torchvision.transforms import ToTensor
+import torchvision.transforms.functional as F
 
-        self.encoder = nn.Sequential(
-            nn.ReflectionPad2d(3),
-            QuantConv2d(4, 64, 7),
-            nn.ReLU(True),
-            QuantConv2d(64, 128, 4, stride=2, padding=1),
-            nn.ReLU(True),
-            QuantConv2d(128, 256, 4, stride=2, padding=1),
-            nn.ReLU(True),
-        )
+# === AOT-GAN Project Modules ===
+from AOT_GAN.src.model.aotgan import InpaintGenerator
 
-        self.middle = nn.Sequential(*[AOTBlock(256, args.rates) for _ in range(args.block_num)])
-
-        self.decoder = nn.Sequential(
-            UpConv(256, 128), nn.ReLU(True), UpConv(128, 64), nn.ReLU(True), QuantConv2d(64, 3, 3, stride=1, padding=1), nn.Tanh()
-        )
-
-        self.init_weights()
-
-        self.activations = []
-        for i in range(args.block_num):
-            self.middle.register_forward_hook(self.get_activation(f"middle.{i}"))
-
-    def get_activation(self, name):
-        def hook(model, input, output):
-            self.activations.append(output.detach())
-        return hook
-
-    def forward(self, x, mask):
-        x = torch.cat([x, mask], dim=1)
-        x = self.encoder(x)
-        x_mid = self.middle(x)
-        x = self.decoder(x_mid)
-        # x = torch.tanh(x)
-        acts = torch.stack(self.activations) if self.activations else torch.tensor([])
-        self.activations = []
-        return x, acts
-
-
-class UpConv(nn.Module):
-    def __init__(self, inc, outc, scale=2):
-        super(UpConv, self).__init__()
-        self.scale = scale
-        self.conv = QuantConv2d(inc, outc, 3, stride=1, padding=1)
-
-    def forward(self, x):
-        return self.conv(nn.functional.interpolate(x, scale_factor=2, mode="bilinear", align_corners=True))
-
-
-class AOTBlock(nn.Module):
-    def __init__(self, dim, rates):
-        super(AOTBlock, self).__init__()
-        self.rates = rates
-        for i, rate in enumerate(rates):
-            self.__setattr__(
-                "block{}".format(str(i).zfill(2)),
-                nn.Sequential(
-                    nn.ReflectionPad2d(rate), QuantConv2d(dim, dim // 4, 3, padding=0, dilation=rate), nn.ReLU(True)
-                ),
-            )
-        self.fuse = nn.Sequential(nn.ReflectionPad2d(1), QuantConv2d(dim, dim, 3, padding=0, dilation=1))
-        self.gate = nn.Sequential(nn.ReflectionPad2d(1), QuantConv2d(dim, dim, 3, padding=0, dilation=1))
-
-    def forward(self, x):
-        out = [self.__getattr__(f"block{str(i).zfill(2)}")(x) for i in range(len(self.rates))]
-        out = torch.cat(out, 1)
-        out = self.fuse(out)
-        mask = my_layer_norm(self.gate(x))
-        mask = torch.sigmoid(mask)
-        return x * (1 - mask) + out * mask
-
-
-def my_layer_norm(feat):
-    mean = feat.mean((2, 3), keepdim=True)
-    std = feat.std((2, 3), keepdim=True) + 1e-9
-    feat = 2 * (feat - mean) / std - 1
-    feat = 5 * feat
-    return feat
-
-
-#### Dataloader def ####
-class InpaintingData(Dataset):
-    def __init__(self, root_dir: str, masks_dir: str = "data/masks"):
-        super(Dataset, self).__init__()
-        # images 
-        self.images = os.listdir(f"{root_dir}")[:100]
-        self.root_dir = root_dir
-        self.masks_dir = masks_dir
-        self.masks = os.listdir(masks_dir)
-        random.seed(10)
-
-        # augmentation
-        self.img_trans = transforms.Compose(
-            [
-                transforms.RandomResizedCrop(512),
-                transforms.RandomHorizontalFlip(),
-                transforms.ColorJitter(0.05, 0.05, 0.05, 0.05),
-                transforms.ToTensor(),
-            ]
-        )
-        self.mask_trans = transforms.Compose(
-            [
-                transforms.Resize(512, interpolation=transforms.InterpolationMode.NEAREST),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomRotation((0, 45), interpolation=transforms.InterpolationMode.NEAREST),
-            ]
-        )
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, index):
-        # load image
-        image_path = os.path.join(f"{self.root_dir}", self.images[index])
-        image = Image.open(image_path).convert("RGB")
-
-        # get mask
-        random_idx = random.randint(0, len(self.masks)-1)
-        mask_path = os.path.join(f"{self.masks_dir}", self.masks[random_idx])
-        mask = Image.open(mask_path).convert("L")
-
-        # augment
-        image = self.img_trans(image) * 2.0 - 1.0
-        mask = F.to_tensor(self.mask_trans(mask))
-
-        return image, mask, image_path
-
+# === PyTorch Quantization ===
+from torch.ao.quantization.qconfig_mapping import (
+    get_default_qat_qconfig_mapping
+)
+from torch.ao.quantization.quantize_fx import (
+    convert_fx,
+    prepare_qat_fx
+)
+from quantization.brevitas_quant.common import QuantInpaintGenerator
+from inpainting_dataset import InpaintingData
 
 device = torch.device("cpu")
 BATCH_SIZE = 1
