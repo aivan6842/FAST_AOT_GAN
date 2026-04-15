@@ -1,4 +1,9 @@
 # MD-AOT-GAN
+There are two paper that were written from this work. The first describes the model training and setup. The second paper discusses model quantization and running it on edge devices.
+
+[Image Inpainting using Small Conditional Generative Models.pdf](https://github.com/user-attachments/files/26766440/Image.Inpainting.using.Small.Conditional.Generative.Models.pdf)
+[Towards_Open_Source_Image_Inpainting_On_Compute_and_Memory_Constrained_Devices.pdf](https://github.com/user-attachments/files/26766458/Towards_Open_Source_Image_Inpainting_On_Compute_and_Memory_Constrained_Devices.pdf)
+
 
 # Overview
 The Multilayer distilled AOT-GAN (MD-AOT-GAN) model was used for my CSC2541 final project. It is a multilayer distilled GAN based on the SOTA AOT-GAN model. Below is an image of the general overview and how the model is structured.
